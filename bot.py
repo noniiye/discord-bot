@@ -439,10 +439,8 @@ async def clear_commands(interaction: Interaction):
     await interaction.response.send_message("✅ تم مسح الأوامر بنجاح.", ephemeral=True)
 
 # ======= تشغيل البوت =======
-from keep_alive import keep_alive
 import discord
-
-keep_alive()  # يشغل السيرفر المصغر
+import os
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -451,14 +449,14 @@ client = discord.Client(intents=intents)
 
 @client.event
 async def on_ready():
-    print(f'✅ Logged in as {client.user}')
+    print(f"✅ Logged in as {client.user}")
 
 @client.event
 async def on_message(message):
     if message.author == client.user:
         return
-
     if message.content.lower() == "ping":
         await message.channel.send("pong!")
 
-client.run("MTM5NTI3MjUyNTI4NTQyOTMzOQ.GQNZd7.gN0RLyO7MTusW6fp5743-h0htwMwq07baDvWxo")
+client.run(os.getenv("TOKEN"))
+
