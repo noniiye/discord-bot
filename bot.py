@@ -1,166 +1,136 @@
 import discord
 from discord.ext import commands
-from discord import app_commands, ui, Interaction, Embed, ButtonStyle
-import sqlite3, os
+from discord import app_commands
 from flask import Flask
-from threading import Thread
+import os
+import threading
+import json
 
-# ====== Flask keep_alive =======
-app = Flask('')
+TOKEN = os.getenv("TOKEN")  # تأكد من وضع التوكن في متغير البيئة في Render
 
-@app.route('/')
-def home():
-    return "Bot is alive"
-
-def keep_alive():
-    Thread(target=lambda: app.run(host='0.0.0.0', port=8080)).start()
-
-# ====== Database Setup =======
-conn = sqlite3.connect("store.db")
-c = conn.cursor()
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS stores (
-    guild_id INTEGER PRIMARY KEY,
-    owner_id INTEGER,
-    store_name TEXT,
-    order_channel_id INTEGER,
-    payment_link TEXT
-)
-""")
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS categories (
-    guild_id INTEGER,
-    category_name TEXT,
-    PRIMARY KEY(guild_id, category_name)
-)
-""")
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS products (
-    guild_id INTEGER,
-    category_name TEXT,
-    product_name TEXT,
-    price INTEGER,
-    quantity INTEGER,
-    PRIMARY KEY(guild_id, category_name, product_name)
-)
-""")
-
-c.execute("""
-CREATE TABLE IF NOT EXISTS ratings (
-    user_id INTEGER,
-    guild_id INTEGER,
-    stars INTEGER
-)
-""")
-
-conn.commit()
-
-# ===== Bot Setup =====
 intents = discord.Intents.default()
 intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
-# ===== Helper Functions =====
-def get_store(gid):
-    c.execute("SELECT * FROM stores WHERE guild_id=?", (gid,))
-    r = c.fetchone()
-    if r:
-        return {
-            "owner_id": r[1],
-            "store_name": r[2],
-            "order_channel_id": r[3],
-            "payment_link": r[4] or "https://payment.com"
-        }
-    return None
+# سيرفر صغير لتشغيل البوت في Render
+app = Flask(__name__)
 
-def update_quantity(gid, cat, product, qty):
-    c.execute("UPDATE products SET quantity=? WHERE guild_id=? AND category_name=? AND product_name=?",
-              (qty, gid, cat, product))
-    conn.commit()
+@app.route("/")
+def home():
+    return "Bot is running!"
 
-def get_products(gid, cat):
-    c.execute("SELECT product_name, price, quantity FROM products WHERE guild_id=? AND category_name=?", (gid, cat))
-    return c.fetchall()
+def run_flask():
+    app.run(host="0.0.0.0", port=8080)
 
-def send_invoice(user, category, product, price, qty, total, link):
-    embed = Embed(title="📄 فاتورة الطلب", color=0x2ecc71)
-    embed.add_field(name="القسم", value=category)
-    embed.add_field(name="المنتج", value=product)
-    embed.add_field(name="السعر", value=f"{price} ريال")
-    embed.add_field(name="الكمية", value=str(qty))
-    embed.add_field(name="الإجمالي", value=f"{total} ريال")
-    embed.add_field(name="رابط الدفع", value=f"[اضغط هنا للدفع]({link})")
-    embed.set_footer(text="الرجاء إرسال إيصال الدفع بعد التحويل")
-    return user.send(embed=embed)
+threading.Thread(target=run_flask).start()
 
-class RatingView(ui.View):
-    def __init__(self, user_id, guild_id):
-        super().__init__(timeout=60)
-        self.user_id = user_id
-        self.guild_id = guild_id
+# قاعدة بيانات محلية لكل سيرفر (تُخزن داخل ملف JSON)
+DB_FILE = "store_data.json"
 
-        for i in range(1, 6):
-            self.add_item(ui.Button(label=f"{i} ⭐", style=ButtonStyle.secondary, custom_id=f"rate_{i}"))
+def load_db():
+    if not os.path.exists(DB_FILE):
+        with open(DB_FILE, "w") as f:
+            json.dump({}, f)
+    with open(DB_FILE, "r") as f:
+        return json.load(f)
 
-    async def interaction_check(self, interaction: Interaction) -> bool:
-        return interaction.user.id == self.user_id
+def save_db(data):
+    with open(DB_FILE, "w") as f:
+        json.dump(data, f, indent=2)
 
-    @ui.button(label="تجاهل", style=ButtonStyle.danger)
-    async def ignore(self, interaction: Interaction, button: ui.Button):
-        await interaction.response.edit_message(content="❌ تم تجاهل التقييم.", view=None)
+def get_guild_data(guild_id):
+    db = load_db()
+    return db.get(str(guild_id), {"products": [], "orders": []})
 
-@bot.event
-async def on_interaction(interaction: Interaction):
-    if interaction.type == discord.InteractionType.component and interaction.data['custom_id'].startswith("rate_"):
-        stars = int(interaction.data['custom_id'].split("_")[1])
-        user = interaction.user
-        c.execute("INSERT INTO ratings (user_id, guild_id, stars) VALUES (?, ?, ?)", (user.id, interaction.guild.id, stars))
-        conn.commit()
-        await interaction.response.edit_message(content=f"⭐ شكراً لتقييمك {stars} نجوم!", view=None)
+def set_guild_data(guild_id, data):
+    db = load_db()
+    db[str(guild_id)] = data
+    save_db(db)
 
-# ===== Slash Command: طلب =====
-@tree.command(name="طلب", description="🛒 طلب منتج")
-@app_commands.describe(category="اسم القسم", product="اسم المنتج", quantity="الكمية المطلوبة")
-async def order(interaction: Interaction, category: str, product: str, quantity: int):
-    store = get_store(interaction.guild.id)
-    if not store:
-        await interaction.response.send_message("❌ لا يوجد متجر محدد.", ephemeral=True)
-        return
-
-    products = get_products(interaction.guild.id, category)
-    selected = next((p for p in products if p[0] == product), None)
-    if not selected:
-        await interaction.response.send_message("❌ المنتج غير موجود.", ephemeral=True)
-        return
-
-    if quantity > selected[2]:
-        await interaction.response.send_message("❌ الكمية غير متوفرة.", ephemeral=True)
-        return
-
-    total = selected[1] * quantity
-    update_quantity(interaction.guild.id, category, product, selected[2] - quantity)
-
-    await send_invoice(interaction.user, category, product, selected[1], quantity, total, store["payment_link"])
-
-    await interaction.response.send_message("✅ تم إرسال الفاتورة على الخاص.", ephemeral=True)
-
-    # تقييم بعد الطلب
-    try:
-        await interaction.user.send("✨ ما رأيك بتجربتك؟ اختر عدد النجوم:", view=RatingView(interaction.user.id, interaction.guild.id))
-    except:
-        pass
-
-# ===== Events =====
 @bot.event
 async def on_ready():
-    print(f"✅ Bot is ready as {bot.user}")
-    await tree.sync()
+    print(f"✅ Logged in as {bot.user}")
+    try:
+        synced = await tree.sync()
+        print(f"✅ Synced {len(synced)} commands.")
+    except Exception as e:
+        print(f"❌ Sync error: {e}")
 
-# ===== Main Start =====
-keep_alive()
-TOKEN = os.getenv("TOKEN")
+# ✅ أمر لإضافة منتج
+@tree.command(name="اضافة_منتج", description="إضافة منتج جديد للمتجر")
+@app_commands.describe(الاسم="اسم المنتج", السعر="سعر المنتج")
+async def add_product(interaction: discord.Interaction, الاسم: str, السعر: int):
+    guild_id = interaction.guild.id
+    data = get_guild_data(guild_id)
+    data["products"].append({"name": الاسم, "price": السعر})
+    set_guild_data(guild_id, data)
+    await interaction.response.send_message(f"✅ تم إضافة المنتج `{الاسم}` بسعر `{السعر}` ريال.", ephemeral=True)
+
+# ✅ عرض المنتجات
+@tree.command(name="عرض_المنتجات", description="عرض قائمة المنتجات")
+async def show_products(interaction: discord.Interaction):
+    guild_id = interaction.guild.id
+    data = get_guild_data(guild_id)
+    if not data["products"]:
+        await interaction.response.send_message("❌ لا توجد منتجات حاليًا.", ephemeral=True)
+        return
+
+    embed = discord.Embed(title="🛒 المنتجات المتوفرة:", color=discord.Color.blue())
+    for idx, product in enumerate(data["products"], start=1):
+        embed.add_field(name=f"{idx}- {product['name']}", value=f"السعر: {product['price']} ريال", inline=False)
+    await interaction.response.send_message(embed=embed, ephemeral=True)
+
+# ✅ تقديم طلب شراء
+@tree.command(name="طلب", description="طلب شراء منتج")
+@app_commands.describe(رقم_المنتج="رقم المنتج من القائمة")
+async def order(interaction: discord.Interaction, رقم_المنتج: int):
+    guild_id = interaction.guild.id
+    user = interaction.user
+    data = get_guild_data(guild_id)
+
+    if رقم_المنتج < 1 or رقم_المنتج > len(data["products"]):
+        await interaction.response.send_message("❌ رقم المنتج غير صحيح.", ephemeral=True)
+        return
+
+    product = data["products"][رقم_المنتج - 1]
+    order_info = {
+        "user": user.id,
+        "product": product,
+        "status": "pending"
+    }
+    data["orders"].append(order_info)
+    set_guild_data(guild_id, data)
+
+    # إرسال الفاتورة في الرد
+    embed = discord.Embed(title="🧾 فاتورة الطلب", color=discord.Color.green())
+    embed.add_field(name="العميل", value=user.mention, inline=False)
+    embed.add_field(name="المنتج", value=product['name'], inline=True)
+    embed.add_field(name="السعر", value=f"{product['price']} ريال", inline=True)
+    await interaction.response.send_message(embed=embed)
+
+# ✅ إنهاء الطلب (للتاجر فقط)
+@tree.command(name="انهاء_الطلب", description="إنهاء الطلب وإرسال تقييم للعميل")
+@app_commands.describe(رقم_الطلب="رقم الطلب من 1 وما فوق")
+async def complete_order(interaction: discord.Interaction, رقم_الطلب: int):
+    guild_id = interaction.guild.id
+    data = get_guild_data(guild_id)
+
+    if رقم_الطلب < 1 or رقم_الطلب > len(data["orders"]):
+        await interaction.response.send_message("❌ رقم الطلب غير صحيح.", ephemeral=True)
+        return
+
+    order = data["orders"][رقم_الطلب - 1]
+    order["status"] = "completed"
+    set_guild_data(guild_id, data)
+
+    user = bot.get_user(order["user"])
+    if user:
+        try:
+            await user.send(f"✅ تم إنهاء طلبك لمنتج `{order['product']['name']}` بنجاح.\n📩 من فضلك قيّم تجربتك معنا بإرسال رسالة هنا!")
+        except:
+            pass
+
+    await interaction.response.send_message("✅ تم إنهاء الطلب وإرسال رسالة التقييم للعميل.", ephemeral=True)
+
 bot.run(TOKEN)
