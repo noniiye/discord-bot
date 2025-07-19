@@ -1,3 +1,4 @@
+
 import discord
 from discord.ext import commands
 from discord import app_commands, ui, Interaction, Embed, ButtonStyle
@@ -462,7 +463,4 @@ async def ping(ctx):
 
 # تشغيل البوت باستخدام التوكن من متغير البيئة
 bot.run(os.getenv("TOKEN"))
-
-
-
 
