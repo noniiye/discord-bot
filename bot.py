@@ -1,136 +1,124 @@
-import discord
-from discord.ext import commands
-from discord import app_commands
-from flask import Flask
-import os
-import threading
-import json
 
-TOKEN = os.getenv("TOKEN")  # تأكد من وضع التوكن في متغير البيئة في Render
+import discord
+from discord import app_commands, Embed
+from discord.ext import commands
+import json
+import os
+from flask import Flask
+from threading import Thread
 
 intents = discord.Intents.default()
+intents.guilds = True
+intents.messages = True
 intents.message_content = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
-tree = bot.tree
+TREE = bot.tree
 
-# سيرفر صغير لتشغيل البوت في Render
-app = Flask(__name__)
+# قاعدة بيانات JSON
+DB_FILE = "data.json"
+if not os.path.exists(DB_FILE):
+    with open(DB_FILE, "w") as f:
+        json.dump({}, f)
 
-@app.route("/")
-def home():
-    return "Bot is running!"
-
-def run_flask():
-    app.run(host="0.0.0.0", port=8080)
-
-threading.Thread(target=run_flask).start()
-
-# قاعدة بيانات محلية لكل سيرفر (تُخزن داخل ملف JSON)
-DB_FILE = "store_data.json"
-
-def load_db():
-    if not os.path.exists(DB_FILE):
-        with open(DB_FILE, "w") as f:
-            json.dump({}, f)
+def load_data():
     with open(DB_FILE, "r") as f:
         return json.load(f)
 
-def save_db(data):
+def save_data(data):
     with open(DB_FILE, "w") as f:
-        json.dump(data, f, indent=2)
+        json.dump(data, f, indent=4)
 
-def get_guild_data(guild_id):
-    db = load_db()
-    return db.get(str(guild_id), {"products": [], "orders": []})
+# سحب أو إنشاء متجر لسيرفر
+def get_store(guild_id):
+    data = load_data()
+    return data.setdefault(str(guild_id), {"store_name": None, "sections": {}, "order_channel": None, "payment_link": None})
 
-def set_guild_data(guild_id, data):
-    db = load_db()
-    db[str(guild_id)] = data
-    save_db(db)
+def update_store(guild_id, store):
+    data = load_data()
+    data[str(guild_id)] = store
+    save_data(data)
 
+# الأحداث
 @bot.event
 async def on_ready():
     print(f"✅ Logged in as {bot.user}")
     try:
-        synced = await tree.sync()
-        print(f"✅ Synced {len(synced)} commands.")
+        synced = await TREE.sync()
+        print(f"✅ Synced {len(synced)} commands")
     except Exception as e:
-        print(f"❌ Sync error: {e}")
+        print(f"❌ Sync failed: {e}")
 
-# ✅ أمر لإضافة منتج
-@tree.command(name="اضافة_منتج", description="إضافة منتج جديد للمتجر")
-@app_commands.describe(الاسم="اسم المنتج", السعر="سعر المنتج")
-async def add_product(interaction: discord.Interaction, الاسم: str, السعر: int):
-    guild_id = interaction.guild.id
-    data = get_guild_data(guild_id)
-    data["products"].append({"name": الاسم, "price": السعر})
-    set_guild_data(guild_id, data)
-    await interaction.response.send_message(f"✅ تم إضافة المنتج `{الاسم}` بسعر `{السعر}` ريال.", ephemeral=True)
+# إنشاء متجر
+@TREE.command(name="إنشاء_متجر", description="إنشاء متجر جديد للسيرفر")
+async def create_store(interaction: discord.Interaction, الاسم: str):
+    store = get_store(interaction.guild.id)
+    store["store_name"] = الاسم
+    update_store(interaction.guild.id, store)
+    await interaction.response.send_message(embed=Embed(title="✅ تم إنشاء المتجر", description=f"اسم المتجر: **{الاسم}**", color=0x00ff00))
 
-# ✅ عرض المنتجات
-@tree.command(name="عرض_المنتجات", description="عرض قائمة المنتجات")
-async def show_products(interaction: discord.Interaction):
-    guild_id = interaction.guild.id
-    data = get_guild_data(guild_id)
-    if not data["products"]:
-        await interaction.response.send_message("❌ لا توجد منتجات حاليًا.", ephemeral=True)
+# تحديد روم الطلبات
+@TREE.command(name="تحديد_روم_الطلبات", description="حدد روم الطلبات")
+async def set_order_channel(interaction: discord.Interaction, channel: discord.TextChannel):
+    store = get_store(interaction.guild.id)
+    store["order_channel"] = channel.id
+    update_store(interaction.guild.id, store)
+    await interaction.response.send_message(embed=Embed(title="📥 تم تحديد روم الطلبات", description=f"{channel.mention}", color=0x00ff00))
+
+# تحديد رابط الدفع
+@TREE.command(name="تحديد_رابط_الدفع", description="حدد رابط الدفع الذي يظهر بالفاتورة")
+async def set_payment_link(interaction: discord.Interaction, الرابط: str):
+    store = get_store(interaction.guild.id)
+    store["payment_link"] = الرابط
+    update_store(interaction.guild.id, store)
+    await interaction.response.send_message(embed=Embed(title="💸 تم تعيين رابط الدفع", description=f"الرابط: {الرابط}", color=0x00ff00))
+
+# تنفيذ الطلب
+@TREE.command(name="طلب", description="طلب منتج من المتجر")
+async def place_order(interaction: discord.Interaction, القسم: str, المنتج: str):
+    store = get_store(interaction.guild.id)
+    if القسم not in store["sections"] or المنتج not in store["sections"][القسم]["products"]:
+        await interaction.response.send_message(embed=Embed(title="❌ المنتج غير موجود", color=0xff0000), ephemeral=True)
         return
 
-    embed = discord.Embed(title="🛒 المنتجات المتوفرة:", color=discord.Color.blue())
-    for idx, product in enumerate(data["products"], start=1):
-        embed.add_field(name=f"{idx}- {product['name']}", value=f"السعر: {product['price']} ريال", inline=False)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    السعر = store["sections"][القسم]["products"][المنتج]
+    رابط_الدفع = store.get("payment_link", "لا يوجد رابط دفع محدد")
+    order_embed = Embed(title="📦 فاتورة الطلب", color=0x3498db)
+    order_embed.add_field(name="المنتج", value=المنتج, inline=False)
+    order_embed.add_field(name="القسم", value=القسم, inline=False)
+    order_embed.add_field(name="السعر", value=f"{السعر} ريال", inline=False)
+    order_embed.add_field(name="رابط الدفع", value=رابط_الدفع, inline=False)
 
-# ✅ تقديم طلب شراء
-@tree.command(name="طلب", description="طلب شراء منتج")
-@app_commands.describe(رقم_المنتج="رقم المنتج من القائمة")
-async def order(interaction: discord.Interaction, رقم_المنتج: int):
-    guild_id = interaction.guild.id
-    user = interaction.user
-    data = get_guild_data(guild_id)
+    try:
+        await interaction.user.send(embed=order_embed)
+        await interaction.user.send("📢 من فضلك بعد الدفع، قيّم تجربتك باستخدام هذا الرابط: https://example.com/rate")
 
-    if رقم_المنتج < 1 or رقم_المنتج > len(data["products"]):
-        await interaction.response.send_message("❌ رقم المنتج غير صحيح.", ephemeral=True)
-        return
+        # إرسال الطلب إلى روم الطلبات إن وُجد
+        order_channel_id = store.get("order_channel")
+        if order_channel_id:
+            channel = interaction.guild.get_channel(order_channel_id)
+            if channel:
+                await channel.send(f"🛒 تم طلب **{المنتج}** من قبل {interaction.user.mention}")
 
-    product = data["products"][رقم_المنتج - 1]
-    order_info = {
-        "user": user.id,
-        "product": product,
-        "status": "pending"
-    }
-    data["orders"].append(order_info)
-    set_guild_data(guild_id, data)
+        await interaction.response.send_message(embed=Embed(title="✅ تم تنفيذ الطلب", description="تم إرسال الفاتورة في الخاص.", color=0x00ff00), ephemeral=True)
+    except discord.Forbidden:
+        await interaction.response.send_message("❌ لا يمكنني إرسال رسائل خاصة لك، فعل الرسائل الخاصة أولاً.", ephemeral=True)
 
-    # إرسال الفاتورة في الرد
-    embed = discord.Embed(title="🧾 فاتورة الطلب", color=discord.Color.green())
-    embed.add_field(name="العميل", value=user.mention, inline=False)
-    embed.add_field(name="المنتج", value=product['name'], inline=True)
-    embed.add_field(name="السعر", value=f"{product['price']} ريال", inline=True)
-    await interaction.response.send_message(embed=embed)
+# Flask للبقاء على قيد الحياة في Render
+app = Flask('')
 
-# ✅ إنهاء الطلب (للتاجر فقط)
-@tree.command(name="انهاء_الطلب", description="إنهاء الطلب وإرسال تقييم للعميل")
-@app_commands.describe(رقم_الطلب="رقم الطلب من 1 وما فوق")
-async def complete_order(interaction: discord.Interaction, رقم_الطلب: int):
-    guild_id = interaction.guild.id
-    data = get_guild_data(guild_id)
+@app.route('/')
+def home():
+    return "البوت يعمل ✅"
 
-    if رقم_الطلب < 1 or رقم_الطلب > len(data["orders"]):
-        await interaction.response.send_message("❌ رقم الطلب غير صحيح.", ephemeral=True)
-        return
+def run():
+    app.run(host='0.0.0.0', port=8080)
 
-    order = data["orders"][رقم_الطلب - 1]
-    order["status"] = "completed"
-    set_guild_data(guild_id, data)
+Thread(target=run).start()
 
-    user = bot.get_user(order["user"])
-    if user:
-        try:
-            await user.send(f"✅ تم إنهاء طلبك لمنتج `{order['product']['name']}` بنجاح.\n📩 من فضلك قيّم تجربتك معنا بإرسال رسالة هنا!")
-        except:
-            pass
-
-    await interaction.response.send_message("✅ تم إنهاء الطلب وإرسال رسالة التقييم للعميل.", ephemeral=True)
-
-bot.run(TOKEN)
+import os
+TOKEN = os.getenv("TOKEN")
+if TOKEN:
+    bot.run(TOKEN)
+else:
+    print("❌ لم يتم تحديد التوكن")
