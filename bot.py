@@ -138,11 +138,18 @@ class QuantityModal(ui.Modal, title="🔢 أدخل الكمية"):
         self.original_interaction = interaction
 
     async def on_submit(self, interaction: Interaction):
+        try:
+            الكمية = int(self.كمية.value)
+            if الكمية <= 0:
+                raise ValueError
+        except ValueError:
+            await interaction.response.send_message("❌ الرجاء إدخال رقم صحيح موجب للكمية.", ephemeral=True)
+            return
+
         data = load_data()
         gid = str(interaction.guild_id)
         info = data[gid]
         المنتج = info["categories"][self.القسم][self.المنتج]
-        الكمية = int(self.كمية.value)
         السعر_الإجمالي = الكمية * المنتج["price"]
 
         embed = Embed(title=f"🧾 فاتورة الشراء من {info['store_name']}", color=0x00ff00)
@@ -151,6 +158,7 @@ class QuantityModal(ui.Modal, title="🔢 أدخل الكمية"):
         embed.add_field(name="🔢 الكمية", value=str(الكمية), inline=True)
         embed.add_field(name="💰 السعر الإجمالي", value=f"{السعر_الإجمالي} ريال", inline=True)
         embed.add_field(name="💳 الدفع", value=info["payment_link"] or "لا يوجد رابط دفع", inline=False)
+        embed.add_field(name="📩 سيتم إرسال الإيصال للتاجر", value="نعم", inline=False)
 
         view = ui.View()
 
@@ -209,6 +217,8 @@ async def طلب(interaction: Interaction):
                         super().__init__()
                         for منتج in المنتجات:
                             self.add_item(self.منتجButton(منتج))
+                        self.add_item(رجوعButton())
+                        self.add_item(إلغاءButton())
 
                     class منتجButton(ui.Button):
                         def __init__(self, المنتج):
@@ -217,6 +227,20 @@ async def طلب(interaction: Interaction):
 
                         async def callback(inner_self, interaction: Interaction):
                             await interaction.response.send_modal(QuantityModal(self.القسم, inner_self.المنتج, interaction))
+
+                    class رجوعButton(ui.Button):
+                        def __init__(self):
+                            super().__init__(label="🔙 رجوع", style=ButtonStyle.secondary)
+
+                        async def callback(self, interaction: Interaction):
+                            await طلب(interaction)
+
+                    class إلغاءButton(ui.Button):
+                        def __init__(self):
+                            super().__init__(label="❌ إلغاء الطلب", style=ButtonStyle.danger)
+
+                        async def callback(self, interaction: Interaction):
+                            await interaction.response.send_message("❌ تم إلغاء الطلب.", ephemeral=True)
 
                 await interaction.response.send_message("اختر المنتج:", view=اختيارمنتج(), ephemeral=True)
 
