@@ -191,36 +191,34 @@ async def طلب(interaction: Interaction):
         def __init__(self):
             super().__init__()
             for القسم in الأقسام:
-                self.add_item(ui.Button(label=القسم, style=ButtonStyle.secondary, custom_id=القسم))
+                self.add_item(self.قسمButton(القسم))
 
-        async def interaction_check(self, interaction_: Interaction) -> bool:
-            return interaction.user == interaction_.user
+        class قسمButton(ui.Button):
+            def __init__(self, القسم):
+                super().__init__(label=القسم, style=ButtonStyle.secondary)
+                self.القسم = القسم
 
-        @ui.button(label="إلغاء", style=ButtonStyle.danger)
-        async def cancel(self, interaction: Interaction, button: ui.Button):
-            await interaction.response.send_message("تم الإلغاء.", ephemeral=True)
+            async def callback(self, interaction: Interaction):
+                المنتجات = list(data[gid]["categories"][self.القسم].keys())
+                if not المنتجات:
+                    await interaction.response.send_message("❌ لا توجد منتجات في هذا القسم.", ephemeral=True)
+                    return
 
-        async def on_timeout(self):
-            for child in self.children:
-                child.disabled = True
+                class اختيارمنتج(ui.View):
+                    def __init__(self):
+                        super().__init__()
+                        for منتج in المنتجات:
+                            self.add_item(self.منتجButton(منتج))
 
-        async def on_error(self, interaction: Interaction, error: Exception, item):
-            await interaction.response.send_message("حدث خطأ.", ephemeral=True)
+                    class منتجButton(ui.Button):
+                        def __init__(self, المنتج):
+                            super().__init__(label=المنتج, style=ButtonStyle.primary)
+                            self.المنتج = المنتج
 
-        async def on_button_click(self, interaction: Interaction):
-            القسم = interaction.data["custom_id"]
-            المنتجات = list(data[gid]["categories"][القسم].keys())
+                        async def callback(inner_self, interaction: Interaction):
+                            await interaction.response.send_modal(QuantityModal(self.القسم, inner_self.المنتج, interaction))
 
-            class اختيارمنتج(ui.View):
-                def __init__(self):
-                    super().__init__()
-                    for منتج in المنتجات:
-                        self.add_item(ui.Button(label=منتج, style=ButtonStyle.primary, custom_id=منتج))
-
-                async def on_button_click(self, interaction: Interaction):
-                    await interaction.response.send_modal(QuantityModal(القسم, interaction.data["custom_id"], interaction))
-
-            await interaction.response.send_message("اختر المنتج:", view=اختيارمنتج(), ephemeral=True)
+                await interaction.response.send_message("اختر المنتج:", view=اختيارمنتج(), ephemeral=True)
 
     await interaction.response.send_message("اختر القسم:", view=اختيارالقسم(), ephemeral=True)
 
