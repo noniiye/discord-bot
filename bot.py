@@ -97,8 +97,8 @@ async def اضافة_منتج(interaction: Interaction, القسم: str, الا�
     save_data(data)
     await interaction.response.send_message(f"✅ تمت إضافة المنتج: {الاسم} في القسم: {القسم}", ephemeral=True)
 
-@bot.tree.command(name="عرض_المنتجات")
-async def عرض_المنتجات(interaction: Interaction):
+@bot.tree.command(name="طلب")
+async def طلب(interaction: Interaction):
     data = load_data()
     gid = str(interaction.guild_id)
     if gid not in data or not data[gid]["categories"]:
@@ -137,11 +137,27 @@ class QuantityModal(ui.Modal, title="تحديد الكمية"):
         # إرسال الطلب لروم التاجر
         order_channel = interaction.guild.get_channel(data[gid]["order_channel"])
         if order_channel:
-            await order_channel.send(f"🛒 طلب جديد من {مستخدم.mention}\n📦 المنتج: {self.المنتج}\n📁 القسم: {self.القسم}\n🔢 الكمية: {الكمية}\n💰 السعر الإجمالي: {السعر_الإجمالي} ريال")
+            await order_channel.send(
+                f"🛒 طلب جديد من {المستخدم.mention}\n"
+                f"📦 المنتج: {self.المنتج}\n"
+                f"📁 القسم: {self.القسم}\n"
+                f"🔢 الكمية: {الكمية}\n"
+                f"💰 السعر الإجمالي: {السعر_الإجمالي} ريال"
+            )
 
         # إرسال الفاتورة للعميل
         try:
-            await المستخدم.send(embed=Embed(title="🧾 فاتورة الطلب", description=f"**المتجر:** {data[gid]['store_name']}\n**المنتج:** {self.المنتج}\n**الكمية:** {الكمية}\n**الإجمالي:** {السعر_الإجمالي} ريال\n**رابط الدفع:** {data[gid]['payment']}", color=0x00ff00))
+            await المستخدم.send(embed=Embed(
+                title="🧾 فاتورة الطلب",
+                description=(
+                    f"**المتجر:** {data[gid]['store_name']}\n"
+                    f"**المنتج:** {self.المنتج}\n"
+                    f"**الكمية:** {الكمية}\n"
+                    f"**الإجمالي:** {السعر_الإجمالي} ريال\n"
+                    f"**رابط الدفع:** {data[gid]['payment']}"
+                ),
+                color=0x00ff00
+            ))
         except:
             pass
 
