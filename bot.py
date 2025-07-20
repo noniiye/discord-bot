@@ -3,178 +3,206 @@ from discord.ext import commands
 from discord import app_commands
 import os
 import json
+from discord.ui import Button, View, Modal, TextInput
 from keep_alive import keep_alive
 
 intents = discord.Intents.default()
 intents.guilds = True
-intents.messages = True
-intents.message_content = False
+intents.members = True
+
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
-# تخزين البيانات
-if not os.path.exists("data.json"):
-    with open("data.json", "w") as f:
-        json.dump({}, f)
-
-def load_data():
+servers_data = {}
+if os.path.exists("data.json"):
     with open("data.json", "r") as f:
-        return json.load(f)
+        servers_data = json.load(f)
 
-def save_data(data):
+def save_data():
     with open("data.json", "w") as f:
-        json.dump(data, f, indent=4)
+        json.dump(servers_data, f, indent=4)
 
-# إنشاء متجر
+@bot.event
+async def on_ready():
+    print(f"✅ Logged in as {bot.user}")
+    try:
+        synced = await tree.sync()
+        print(f"✅ Synced {len(synced)} command(s)")
+    except Exception as e:
+        print(f"❌ Sync error: {e}")
+
 @tree.command(name="إنشاء_متجر")
 @app_commands.describe(الاسم="اسم المتجر")
 async def create_store(interaction: discord.Interaction, الاسم: str):
-    data = load_data()
-    data[str(interaction.guild_id)] = {"store_name": الاسم, "categories": {}, "payment_link": "", "order_channel": None}
-    save_data(data)
-    embed = discord.Embed(title="✅ تم إنشاء المتجر", description=f"اسم المتجر: **{الاسم}**", color=0x00ff00)
-    await interaction.response.send_message(embed=embed, ephemeral=True)
+    guild_id = str(interaction.guild_id)
+    servers_data[guild_id] = {"store_name": الاسم, "categories": {}, "payment_link": "", "orders_channel": None}
+    save_data()
+    await interaction.response.send_message(embed=discord.Embed(title="✅ تم إنشاء المتجر", description=f"اسم المتجر: **{الاسم}**", color=0x00ff00), ephemeral=True)
 
-# إضافة قسم
 @tree.command(name="إضافة_قسم")
 @app_commands.describe(الاسم="اسم القسم")
 async def add_category(interaction: discord.Interaction, الاسم: str):
-    data = load_data()
-    store = data.get(str(interaction.guild_id))
-    if not store:
-        await interaction.response.send_message("❌ لم يتم إنشاء المتجر بعد.", ephemeral=True)
-        return
-    store["categories"][الاسم] = {}
-    save_data(data)
+    guild_id = str(interaction.guild_id)
+    if guild_id not in servers_data:
+        return await interaction.response.send_message("❌ لم يتم إنشاء متجر بعد", ephemeral=True)
+    servers_data[guild_id]["categories"][الاسم] = {}
+    save_data()
     await interaction.response.send_message(embed=discord.Embed(title="✅ تم إضافة القسم", description=الاسم, color=0x00ff00), ephemeral=True)
 
-# إضافة منتج
 @tree.command(name="إضافة_منتج")
-@app_commands.describe(القسم="اسم القسم", المنتج="اسم المنتج", الكمية="الكمية المتوفرة", السعر="سعر المنتج")
-async def add_product(interaction: discord.Interaction, القسم: str, المنتج: str, الكمية: int, السعر: float):
-    data = load_data()
-    store = data.get(str(interaction.guild_id))
-    if not store or القسم not in store["categories"]:
-        await interaction.response.send_message("❌ القسم غير موجود أو المتجر غير مُنشأ.", ephemeral=True)
-        return
-    store["categories"][القسم][المنتج] = {"الكمية": الكمية, "السعر": السعر}
-    save_data(data)
-    await interaction.response.send_message(embed=discord.Embed(title="✅ تم إضافة المنتج", description=f"{المنتج} - {السعر}$ (x{الكمية})", color=0x00ff00), ephemeral=True)
+@app_commands.describe(القسم="اسم القسم", الاسم="اسم المنتج", الكمية="الكمية المتاحة", السعر="سعر المنتج")
+async def add_product(interaction: discord.Interaction, القسم: str, الاسم: str, الكمية: int, السعر: float):
+    guild_id = str(interaction.guild_id)
+    if guild_id not in servers_data or القسم not in servers_data[guild_id]["categories"]:
+        return await interaction.response.send_message("❌ القسم غير موجود", ephemeral=True)
+    servers_data[guild_id]["categories"][القسم][الاسم] = {"quantity": الكمية, "price": السعر}
+    save_data()
+    await interaction.response.send_message(embed=discord.Embed(title="✅ تم إضافة المنتج", description=f"{الاسم} في قسم {القسم}", color=0x00ff00), ephemeral=True)
 
-# تحديد رابط الدفع
 @tree.command(name="رابط_الدفع")
-@app_commands.describe(الرابط="رابط الدفع")
-async def set_payment(interaction: discord.Interaction, الرابط: str):
-    data = load_data()
-    if str(interaction.guild_id) not in data:
-        await interaction.response.send_message("❌ لم يتم إنشاء المتجر بعد.", ephemeral=True)
-        return
-    data[str(interaction.guild_id)]["payment_link"] = الرابط
-    save_data(data)
-    await interaction.response.send_message(embed=discord.Embed(title="✅ تم تحديد رابط الدفع", description=رابط, color=0x00ff00), ephemeral=True)
+@app_commands.describe(الرابط="ضع رابط الدفع")
+async def set_payment_link(interaction: discord.Interaction, الرابط: str):
+    guild_id = str(interaction.guild_id)
+    if guild_id not in servers_data:
+        return await interaction.response.send_message("❌ لم يتم إنشاء متجر بعد", ephemeral=True)
+    servers_data[guild_id]["payment_link"] = الرابط
+    save_data()
+    await interaction.response.send_message(embed=discord.Embed(title="✅ تم تحديث رابط الدفع", description=الرابط, color=0x00ff00), ephemeral=True)
 
-# تحديد روم الطلبات
 @tree.command(name="تحديد_روم_الطلبات")
-@app_commands.describe(الروم="الروم")
-async def set_order_channel(interaction: discord.Interaction, الروم: discord.TextChannel):
-    data = load_data()
-    if str(interaction.guild_id) not in data:
-        await interaction.response.send_message("❌ لم يتم إنشاء المتجر بعد.", ephemeral=True)
-        return
-    data[str(interaction.guild_id)]["order_channel"] = الروم.id
-    save_data(data)
-    await interaction.response.send_message(embed=discord.Embed(title="✅ تم تحديد روم الطلبات", description=روم.mention, color=0x00ff00), ephemeral=True)
+@app_commands.describe(الروم="حدد روم الطلبات")
+async def set_orders_channel(interaction: discord.Interaction, الروم: discord.TextChannel):
+    guild_id = str(interaction.guild_id)
+    if guild_id not in servers_data:
+        return await interaction.response.send_message("❌ لم يتم إنشاء متجر بعد", ephemeral=True)
+    servers_data[guild_id]["orders_channel"] = الروم.id
+    save_data()
+    await interaction.response.send_message(embed=discord.Embed(title="✅ تم تحديد روم الطلبات", description=الروم.mention, color=0x00ff00), ephemeral=True)
 
-# تنفيذ الطلب
-class QuantityModal(discord.ui.Modal, title="أدخل الكمية"):
-    الكمية = discord.ui.TextInput(label="الكمية", placeholder="أدخل عدد الكمية المطلوبة")
+class QuantityModal(Modal, title="أدخل الكمية"):
+    quantity = TextInput(label="الكمية", placeholder="مثال: 1", required=True)
 
-    def __init__(self, interaction, القسم, المنتج):
+    def __init__(self, callback):
         super().__init__()
-        self.interaction = interaction
-        self.القسم = القسم
-        self.المنتج = المنتج
+        self.callback_fn = callback
 
     async def on_submit(self, interaction: discord.Interaction):
-        data = load_data()
-        store = data[str(interaction.guild_id)]
-        المنتج_بيانات = store["categories"][self.القسم][self.المنتج]
-        السعر = المنتج_بيانات["السعر"] * int(self.الكمية.value)
-        رابط = store["payment_link"]
-        قناة_الطلبات = store.get("order_channel")
-
-        embed = discord.Embed(title="🧾 فاتورتك", description=f"**{store['store_name']}**\n\n**المنتج:** {self.المنتج}\n**القسم:** {self.القسم}\n**الكمية:** {self.الكمية.value}\n**السعر الكلي:** {السعر}$", color=0x3498db)
-        embed.add_field(name="رابط الدفع", value=رابط, inline=False)
-        await interaction.user.send(embed=embed)
-
-        if قناة_الطلبات:
-            channel = interaction.client.get_channel(قناة_الطلبات)
-            if channel:
-                await channel.send(f"📦 طلب جديد من <@{interaction.user.id}>\n**القسم:** {self.القسم}\n**المنتج:** {self.المنتج}\n**الكمية:** {self.الكمية.value}")
-
-        await interaction.response.send_message("✅ تم تنفيذ الطلب!", ephemeral=True)
+        await self.callback_fn(interaction, self.quantity.value)
 
 @tree.command(name="طلب")
-async def طلب(interaction: discord.Interaction):
-    data = load_data()
-    store = data.get(str(interaction.guild_id))
-    if not store:
-        await interaction.response.send_message("❌ المتجر غير موجود.", ephemeral=True)
-        return
+async def order(interaction: discord.Interaction):
+    guild_id = str(interaction.guild_id)
+    data = servers_data.get(guild_id)
+    if not data:
+        return await interaction.response.send_message("❌ لم يتم إنشاء متجر بعد", ephemeral=True)
 
-    الأقسام = list(store["categories"].keys())
+    categories = list(data["categories"].keys())
+    if not categories:
+        return await interaction.response.send_message("❌ لا توجد أقسام مضافة", ephemeral=True)
 
-    class SectionView(discord.ui.View):
-        def __init__(self):
-            super().__init__(timeout=60)
+    async def choose_category_callback(inter: discord.Interaction):
+        category = inter.data["custom_id"].split("category_")[1]
+        products = list(data["categories"][category].keys())
+        if not products:
+            return await inter.response.send_message("❌ لا توجد منتجات في هذا القسم", ephemeral=True)
 
-            for القسم in الأقسام:
-                self.add_item(discord.ui.Button(label=القسم, style=discord.ButtonStyle.primary, custom_id=القسم))
+        view = View(timeout=60)
+        for prod in products:
+            btn = Button(label=prod, style=discord.ButtonStyle.blurple, custom_id=f"product_{category}_{prod}")
+            view.add_item(btn)
 
-        @discord.ui.button(label="إلغاء", style=discord.ButtonStyle.danger)
-        async def cancel(self, interaction2: discord.Interaction, button: discord.ui.Button):
-            await interaction2.response.send_message("❌ تم إلغاء الطلب.", ephemeral=True)
-            self.stop()
+        async def product_callback(i: discord.Interaction):
+            parts = i.data["custom_id"].split("product_")[1].split("_")
+            selected_cat = parts[0]
+            selected_prod = "_".join(parts[1:])
 
-        async def interaction_check(self, i: discord.Interaction) -> bool:
-            return i.user.id == interaction.user.id
+            async def after_quantity_submit(inter_modal: discord.Interaction, quantity_value):
+                prod_data = data["categories"][selected_cat][selected_prod]
+                total_price = float(prod_data["price"]) * int(quantity_value)
+                embed = discord.Embed(title="💰 فاتورتك", color=0x3498db)
+                embed.add_field(name="المتجر", value=data["store_name"], inline=False)
+                embed.add_field(name="المنتج", value=selected_prod, inline=True)
+                embed.add_field(name="القسم", value=selected_cat, inline=True)
+                embed.add_field(name="الكمية", value=quantity_value, inline=True)
+                embed.add_field(name="السعر الإجمالي", value=f"{total_price} ريال", inline=True)
+                embed.add_field(name="رابط الدفع", value=data["payment_link"], inline=False)
+                await inter_modal.user.send(embed=embed)
 
-        async def on_timeout(self):
-            try:
-                await interaction.followup.send("⏰ انتهى الوقت.", ephemeral=True)
-            except:
-                pass
+                order_channel_id = data.get("orders_channel")
+                if order_channel_id:
+                    ch = bot.get_channel(order_channel_id)
+                    await ch.send(embed=discord.Embed(title="📦 طلب جديد", description=f"**{selected_prod}** من قسم **{selected_cat}**\nالكمية: {quantity_value}\nالعميل: {inter_modal.user.mention}", color=0x2ecc71))
 
-        async def on_error(self, interaction, error, item):
-            print("Error in SectionView", error)
+                    view = View()
+                    for emoji in ["👍", "👎"]:
+                        view.add_item(Button(label=emoji, style=discord.ButtonStyle.secondary, custom_id=f"rate_{emoji}"))
 
-        async def on_submit(self, interaction2):
-            القسم = interaction2.data['custom_id']
-            المنتجات = list(store["categories"][القسم].keys())
+                    await inter_modal.user.send("يرجى تقييم الطلب:", view=view)
 
-            class ProductView(discord.ui.View):
-                def __init__(self):
-                    super().__init__(timeout=60)
-                    for منتج in المنتجات:
-                        self.add_item(discord.ui.Button(label=منتج, style=discord.ButtonStyle.secondary, custom_id=منتج))
+            await i.response.send_modal(QuantityModal(after_quantity_submit))
 
-                async def interaction_check(self, i: discord.Interaction) -> bool:
-                    return i.user.id == interaction.user.id
+        for btn in view.children:
+            btn.callback = product_callback
 
-                async def on_timeout(self):
-                    try:
-                        await interaction.followup.send("⏰ انتهى الوقت.", ephemeral=True)
-                    except:
-                        pass
+        await inter.response.send_message("اختر المنتج:", view=view, ephemeral=True)
 
-                async def on_submit(self, interaction3):
-                    المنتج = interaction3.data['custom_id']
-                    await interaction3.response.send_modal(QuantityModal(interaction3, القسم, المنتج))
+    view = View(timeout=60)
+    for cat in categories:
+        btn = Button(label=cat, style=discord.ButtonStyle.primary, custom_id=f"category_{cat}")
+        view.add_item(btn)
+    for btn in view.children:
+        btn.callback = choose_category_callback
+    await interaction.response.send_message("اختر القسم:", view=view, ephemeral=True)
 
-            await interaction2.response.send_message("اختر المنتج:", view=ProductView(), ephemeral=True)
+@bot.event
+async def on_interaction(interaction: discord.Interaction):
+    if interaction.type.name == "component":
+        if interaction.data["custom_id"].startswith("rate_"):
+            rate = interaction.data["custom_id"].split("rate_")[1]
+            await interaction.response.send_message("✅ شكرًا لتقييمك!", ephemeral=True)
+            for guild_id, data in servers_data.items():
+                if data.get("orders_channel"):
+                    ch = bot.get_channel(data["orders_channel"])
+                    await ch.send(f"⭐ تقييم جديد من {interaction.user.mention}: {rate}")
+    await bot.process_application_commands(interaction)
 
-    await interaction.response.send_message("اختر القسم:", view=SectionView(), ephemeral=True)
+@tree.command(name="حذف_متجر")
+async def delete_store(interaction: discord.Interaction):
+    if str(interaction.guild_id) in servers_data:
+        del servers_data[str(interaction.guild_id)]
+        save_data()
+        await interaction.response.send_message("🗑️ تم حذف المتجر", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ لا يوجد متجر محلي لحذفه", ephemeral=True)
+
+@tree.command(name="حذف_قسم")
+@app_commands.describe(الاسم="اسم القسم")
+async def delete_category(interaction: discord.Interaction, الاسم: str):
+    if str(interaction.guild_id) in servers_data and الاسم in servers_data[str(interaction.guild_id)]["categories"]:
+        del servers_data[str(interaction.guild_id)]["categories"][الاسم]
+        save_data()
+        await interaction.response.send_message("🗑️ تم حذف القسم", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ القسم غير موجود", ephemeral=True)
+
+@tree.command(name="حذف_منتج")
+@app_commands.describe(القسم="اسم القسم", المنتج="اسم المنتج")
+async def delete_product(interaction: discord.Interaction, القسم: str, المنتج: str):
+    if str(interaction.guild_id) in servers_data and القسم in servers_data[str(interaction.guild_id)]["categories"] and المنتج in servers_data[str(interaction.guild_id)]["categories"][القسم]:
+        del servers_data[str(interaction.guild_id)]["categories"][القسم][المنتج]
+        save_data()
+        await interaction.response.send_message("🗑️ تم حذف المنتج", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ المنتج أو القسم غير موجود", ephemeral=True)
+
+@tree.command(name="حذف_رابط")
+async def delete_link(interaction: discord.Interaction):
+    if str(interaction.guild_id) in servers_data:
+        servers_data[str(interaction.guild_id)]["payment_link"] = ""
+        save_data()
+        await interaction.response.send_message("🗑️ تم حذف رابط الدفع", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ لا يوجد متجر", ephemeral=True)
 
 keep_alive()
 bot.run(os.getenv("TOKEN"))
-
