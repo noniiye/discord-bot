@@ -1,78 +1,139 @@
 import discord
-from discord.ext import commands
 from discord import app_commands
+from discord.ext import commands
 import os
+import asyncio
 from keep_alive import keep_alive
 
 intents = discord.Intents.default()
-intents.messages = True
-intents.guilds = True
-intents.message_content = True
-
 bot = commands.Bot(command_prefix="!", intents=intents)
 tree = bot.tree
 
+# قاعدة بيانات مؤقتة لكل سيرفر
 servers_data = {}
 
-class QuantityModal(discord.ui.Modal, title="🔢 إدخال الكمية المطلوبة"):
-    الكمية = discord.ui.TextInput(label="أدخل الكمية (رقم فقط):", style=discord.TextStyle.short)
+class تقييمView(discord.ui.View):
+    def __init__(self, وصف_الطلب, user_id):
+        super().__init__(timeout=None)
+        self.وصف_الطلب = وصف_الطلب
+        self.user_id = user_id
 
-    def __init__(self, parent, interaction, القسم, المنتج, السعر):
-        super().__init__()
-        self.parent = parent
-        self.interaction = interaction
-        self.القسم = القسم
-        self.المنتج = المنتج
-        self.السعر = السعر
+    @discord.ui.button(label="⭐", style=discord.ButtonStyle.primary)
+    async def نجمة_واحدة(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.ارسل_التقييم(interaction, 1)
 
-    async def on_submit(self, interaction: discord.Interaction):
-        try:
-            quantity = int(self.الكمية.value)
-            if quantity <= 0:
-                raise ValueError
-        except ValueError:
-            await interaction.response.send_message("❌ يجب إدخال رقم صالح.", ephemeral=True)
+    @discord.ui.button(label="⭐⭐", style=discord.ButtonStyle.primary)
+    async def نجمتين(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.ارسل_التقييم(interaction, 2)
+
+    @discord.ui.button(label="⭐⭐⭐", style=discord.ButtonStyle.primary)
+    async def ثلاث_نجوم(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.ارسل_التقييم(interaction, 3)
+
+    @discord.ui.button(label="⭐⭐⭐⭐", style=discord.ButtonStyle.primary)
+    async def اربع_نجوم(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.ارسل_التقييم(interaction, 4)
+
+    @discord.ui.button(label="⭐⭐⭐⭐⭐", style=discord.ButtonStyle.primary)
+    async def خمس_نجوم(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await self.ارسل_التقييم(interaction, 5)
+
+    async def ارسل_التقييم(self, interaction, rating):
+        if interaction.user.id != self.user_id:
+            await interaction.response.send_message("❌ لا يمكنك تقييم طلب شخص آخر!", ephemeral=True)
             return
 
-        guild_id = interaction.guild_id
-        user = interaction.user
-        المتج0631 = servers_data[guild_id]["store_name"]
-        رابط_الدفع = servers_data[guild_id].get("payment_link", "لم يتم تحديد رابط دفع بعد.")
-        الطلب = f"{self.القسم} - {self.المنتج} - الكمية: {quantity}"
-
-        embed = discord.Embed(title="📜 فاتورتك", color=discord.Color.blue())
-        embed.add_field(name="المتج0631", value=المتج0631, inline=False)
-        embed.add_field(name="الطلب", value=الطلب, inline=False)
-        embed.add_field(name="رابط الدفع", value=رابط_الدفع, inline=False)
-
-        try:
-            await user.send(embed=embed)
-        except:
-            await interaction.followup.send("❌ لا يمكن إرسال فاتورة للخاص. تأكد أن رسائلك الخاصة مفع-لة.", ephemeral=True)
+        await interaction.response.send_message("✅ شكرًا لتقييمك!", ephemeral=True)
+        بيانات_السيرفر = servers_data.get(interaction.guild_id)
+        if not بيانات_السيرفر:
             return
-
-        await interaction.response.send_message("✅ تم تنفيذ الطلب. تم إرسال الفاتورة في الخاص.", ephemeral=True)
-
-        # إرسال التقييم
-        view = discord.ui.View()
-        for i in range(1, 6):
-            view.add_item(discord.ui.Button(label=str(i), style=discord.ButtonStyle.primary, custom_id=f"rating_{i}_{guild_id}_{user.id}_{الطلب}"))
-
-        try:
-            await user.send("⭐ قيّم طلبك من 1 إلى 5:", view=view)
-        except:
-            pass
-
-        # إرسال الطلب إلى روم التاجر
-        trader_channel_id = servers_data[guild_id].get("trader_channel")
-        if trader_channel_id:
-            trader_channel = bot.get_channel(trader_channel_id)
-            if trader_channel:
-                await trader_channel.send(embed=discord.Embed(
-                    title="📦 طلب جديد",
-                    description=f"**الطلب:** {الطلب}\n**معرف العميل:** {user.id}",
-                    color=discord.Color.orange()
+        روم_الطلبات = بيانات_السيرفر.get("order_channel")
+        if روم_الطلبات:
+            channel = bot.get_channel(Rوم_الطلبات)
+            if channel:
+                await channel.send(embed=discord.Embed(
+                    title="⭐ تقييم جديد",
+                    description=f"**الطلب:** {self.وصف_الطلب}\n**معرّف العميل:** {self.user_id}\n**التقييم:** {rating} ⭐",
+                    color=discord.Color.gold()
                 ))
+
+@bot.event
+async def on_ready():
+    await tree.sync()
+    print(f"✅ تم تسجيل الدخول باسم {bot.user}")
+
+@tree.command(name="انشاء_متجر", description="إنشاء متجر جديد باسم مخصص")
+@app_commands.describe(الاسم="اسم المتجر")
+async def انشاء_متجر(interaction: discord.Interaction, الاسم: str):
+    servers_data[interaction.guild_id] = {
+        "store_name": الاسم,
+        "categories": {},
+        "payment_link": None,
+        "order_channel": None
+    }
+    await interaction.response.send_message(embed=discord.Embed(
+        title="✅ تم إنشاء المتجر",
+        description=f"تم إنشاء المتجر باسم **{الاسم}**",
+        color=discord.Color.green()
+    ))
+
+@tree.command(name="اضافة_قسم", description="إضافة قسم إلى المتجر")
+@app_commands.describe(اسم_القسم="اسم القسم الجديد")
+async def اضافة_قسم(interaction: discord.Interaction, اسم_القسم: str):
+    بيانات = servers_data.get(interaction.guild_id)
+    if not بيانات:
+        await interaction.response.send_message("❌ لم يتم إنشاء متجر بعد.", ephemeral=True)
+        return
+    بيانات["categories"][اسم_القسم] = {}
+    await interaction.response.send_message(embed=discord.Embed(
+        title="✅ تم إضافة القسم",
+        description=f"تمت إضافة القسم **{اسم_القسم}**",
+        color=discord.Color.green()
+    ))
+
+@tree.command(name="اضافة_منتج", description="إضافة منتج إلى قسم معين")
+@app_commands.describe(القسم="اسم القسم", المنتج="اسم المنتج", الكمية="الكمية المتوفرة", السعر="سعر المنتج")
+async def اضافة_منتج(interaction: discord.Interaction, القسم: str, المنتج: str, الكمية: int, السعر: float):
+    بيانات = servers_data.get(interaction.guild_id)
+    if not بيانات or القسم not in بيانات["categories"]:
+        await interaction.response.send_message("❌ القسم غير موجود أو لم يتم إنشاء متجر بعد.", ephemeral=True)
+        return
+    بيانات["categories"][القسم][المنتج] = {"الكمية": الكمية, "السعر": السعر}
+    await interaction.response.send_message(embed=discord.Embed(
+        title="✅ تم إضافة المنتج",
+        description=f"تمت إضافة **{المنتج}** إلى قسم **{القسم}**",
+        color=discord.Color.green()
+    ))
+
+@tree.command(name="رابط_دفع", description="تحديد رابط الدفع")
+@app_commands.describe(الرابط="رابط الدفع")
+async def رابط_دفع(interaction: discord.Interaction, الرابط: str):
+    بيانات = servers_data.get(interaction.guild_id)
+    if not بيانات:
+        await interaction.response.send_message("❌ لم يتم إنشاء متجر بعد.", ephemeral=True)
+        return
+    بيانات["payment_link"] = الرابط
+    await interaction.response.send_message(embed=discord.Embed(
+        title="✅ تم تحديد رابط الدفع",
+        description=f"[اضغط هنا للدفع]({الرابط})",
+        color=discord.Color.green()
+    ))
+
+@tree.command(name="تحديد_روم_الطلبات", description="تحديد الروم الذي يستقبل التقييمات")
+@app_commands.describe(الروم="اختيار روم الطلبات")
+async def تحديد_روم_الطلبات(interaction: discord.Interaction, الروم: discord.TextChannel):
+    بيانات = servers_data.get(interaction.guild_id)
+    if not بيانات:
+        await interaction.response.send_message("❌ لم يتم إنشاء متجر بعد.", ephemeral=True)
+        return
+    بيانات["order_channel"] = الروم.id
+    await interaction.response.send_message(embed=discord.Embed(
+        title="✅ تم تحديد روم الطلبات",
+        description=f"سيتم إرسال التقييمات إلى: {الروم.mention}",
+        color=discord.Color.green()
+    ))
+
+# أكمل الباقي: حذف متجر / قسم / منتج، تنفيذ الطلب، إرسال الفاتورة والتقييم...
 
 keep_alive()
 bot.run(os.getenv("TOKEN"))
