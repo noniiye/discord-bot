@@ -27,6 +27,12 @@ def save_data(data):
     with open(DATA_FILE, "w") as f:
         json.dump(data, f, indent=4)
 
+# تهيئة الأوامر عند التشغيل
+@bot.event
+async def on_ready():
+    await bot.tree.sync()
+    print(f"✅ تم تسجيل {len(bot.tree.get_commands())} أمر سلاش")
+
 # أوامر الإدارة
 @bot.tree.command(name="إنشاء_متجر")
 @app_commands.describe(الاسم="اسم المتجر")
@@ -73,29 +79,30 @@ async def اضافة_منتج(interaction: Interaction, القسم: str, الا�
     save_data(data)
     await interaction.response.send_message(f"✅ تمت إضافة المنتج: {الاسم} في القسم: {القسم}", ephemeral=True)
 
-@bot.tree.command(name="حذف_قسم")
-@app_commands.describe(الاسم="اسم القسم")
-async def حذف_قسم(interaction: Interaction, الاسم: str):
+@bot.tree.command(name="عرض_المنتجات")
+async def عرض_المنتجات(interaction: Interaction):
     data = load_data()
     gid = str(interaction.guild_id)
-    if gid in data and الاسم in data[gid]["categories"]:
-        del data[gid]["categories"][الاسم]
-        save_data(data)
-        await interaction.response.send_message(f"✅ تم حذف القسم: {الاسم}", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ القسم غير موجود.", ephemeral=True)
+    if gid not in data or not data[gid]["categories"]:
+        await interaction.response.send_message("❌ لا يوجد منتجات.", ephemeral=True)
+        return
+    msg = "📦 المنتجات المتاحة:\n"
+    for قسم, منتجات in data[gid]["categories"].items():
+        msg += f"\n__{قسم}__:\n"
+        for اسم, تفاصيل in منتجات.items():
+            msg += f"- {اسم}: {تفاصيل['quantity']} قطعة | {تفاصيل['price']} ريال\n"
+    await interaction.response.send_message(msg, ephemeral=True)
 
-@bot.tree.command(name="حذف_منتج")
-@app_commands.describe(القسم="اسم القسم", الاسم="اسم المنتج")
-async def حذف_منتج(interaction: Interaction, القسم: str, الاسم: str):
+@bot.tree.command(name="حذف_المتجر")
+async def حذف_المتجر(interaction: Interaction):
     data = load_data()
     gid = str(interaction.guild_id)
-    if gid in data and القسم in data[gid]["categories"] and الاسم in data[gid]["categories"][القسم]:
-        del data[gid]["categories"][القسم][الاسم]
+    if gid in data:
+        del data[gid]
         save_data(data)
-        await interaction.response.send_message(f"✅ تم حذف المنتج: {الاسم} من القسم: {القسم}", ephemeral=True)
+        await interaction.response.send_message("✅ تم حذف المتجر.", ephemeral=True)
     else:
-        await interaction.response.send_message("❌ المنتج أو القسم غير موجود.", ephemeral=True)
+        await interaction.response.send_message("❌ لا يوجد متجر لحذفه.", ephemeral=True)
 
 @bot.tree.command(name="تحديد_رابط_الدفع")
 @app_commands.describe(الرابط="رابط الدفع")
@@ -109,98 +116,81 @@ async def تحديد_رابط_الدفع(interaction: Interaction, الرابط:
     save_data(data)
     await interaction.response.send_message("✅ تم تحديث رابط الدفع", ephemeral=True)
 
-class QuantityModal(ui.Modal, title="أدخل الكمية"):
-    الكمية = ui.TextInput(label="الكمية", style=discord.TextStyle.short)
-
-    def __init__(self, القسم, المنتج, interaction: Interaction):
-        super().__init__()
-        self.القسم = القسم
-        self.المنتج = المنتج
-        self.original_interaction = interaction
-
-    async def on_submit(self, interaction: Interaction):
-        data = load_data()
-        gid = str(interaction.guild_id)
-        المنتج = data[gid]["categories"][self.القسم][self.المنتج]
-        if int(self.الكمية.value) > المنتج["quantity"]:
-            await interaction.response.send_message("❌ الكمية غير متوفرة.", ephemeral=True)
-            return
-
-        # خصم الكمية
-        المنتج["quantity"] -= int(self.الكمية.value)
-        save_data(data)
-
-        # إرسال الفاتورة في الخاص
-        الدفع = data[gid].get("payment", "غير محدد")
-        embed = Embed(title="فاتورة الطلب", description=f"**{data[gid]['store_name']}**\n\nالقسم: {self.القسم}\nالمنتج: {self.المنتج}\nالكمية: {self.الكمية.value}\nالسعر: {المنتج['price']} ريال\n\nرابط الدفع: {الدفع}", color=0x00ff00)
-        try:
-            await interaction.user.send(embed=embed)
-        except:
-            await self.original_interaction.followup.send("❌ لم يتم إرسال الفاتورة في الخاص.", ephemeral=True)
-            return
-
-        await interaction.response.send_message("✅ تم تنفيذ الطلب، وتم إرسال الفاتورة في الخاص.", ephemeral=True)
-
-        # إرسال الطلب لروم التاجر
-        order_channel_id = data[gid].get("order_channel")
-        if order_channel_id:
-            channel = bot.get_channel(order_channel_id)
-            if channel:
-                await channel.send(f"📦 طلب جديد من {interaction.user.mention}\nالقسم: {self.القسم}\nالمنتج: {self.المنتج}\nالكمية: {self.الكمية.value}")
-
-        # إرسال التقييم
-        class RatingView(ui.View):
-            def __init__(self):
-                super().__init__(timeout=None)
-                for i in range(1, 6):
-                    self.add_item(ui.Button(label="⭐" * i, style=ButtonStyle.primary, custom_id=f"rating_{i}"))
-
-        await interaction.user.send("يرجى تقييم طلبك:", view=RatingView())
-
-@bot.event
-async def on_interaction(interaction: Interaction):
-    if interaction.type == discord.InteractionType.component:
-        if interaction.data["custom_id"].startswith("rating_"):
-            rating = interaction.data["custom_id"].split("_")[1]
-            await interaction.response.send_message("✅ شكرًا لتقييمك!", ephemeral=True)
-            data = load_data()
-            gid = str(interaction.guild_id)
-            order_channel_id = data.get(gid, {}).get("order_channel")
-            if order_channel_id:
-                channel = bot.get_channel(order_channel_id)
-                if channel:
-                    await channel.send(f"🌟 تقييم من {interaction.user.mention}: {rating} نجوم")
-
+# أمر تنفيذ الطلب
 @bot.tree.command(name="طلب")
 async def طلب(interaction: Interaction):
     data = load_data()
     gid = str(interaction.guild_id)
-    if gid not in data:
-        await interaction.response.send_message("❌ لا يوجد متجر في هذا السيرفر.", ephemeral=True)
+    if gid not in data or not data[gid]["categories"]:
+        await interaction.response.send_message("❌ لا يوجد متجر أو أقسام.", ephemeral=True)
         return
 
-    class CategoryView(ui.View):
+    class ProductQuantityModal(ui.Modal, title="📦 تحديد الكمية"):
+        def __init__(self, القسم, المنتج):
+            super().__init__()
+            self.القسم = القسم
+            self.المنتج = المنتج
+            self.quantity = ui.TextInput(label="أدخل الكمية", style=discord.TextStyle.short, required=True)
+            self.add_item(self.quantity)
+
+        async def on_submit(self, interaction: Interaction):
+            الكمية = int(self.quantity.value)
+            المنتج_البيانات = data[gid]["categories"][self.القسم][self.المنتج]
+            if الكمية > المنتج_البيانات["quantity"]:
+                await interaction.response.send_message("❌ الكمية غير متوفرة.", ephemeral=True)
+                return
+            المنتج_البيانات["quantity"] -= الكمية
+            save_data(data)
+
+            الطلب = f"🛒 الطلب: {self.المنتج} من قسم {self.القسم} × {الكمية}"
+            رابط_الدفع = data[gid].get("payment", "غير محدد")
+            embed = Embed(title=f"فاتورة من متجر {data[gid]['store_name']}", description=الطلب, color=0x00ff00)
+            embed.add_field(name="رابط الدفع", value=رابط_الدفع, inline=False)
+            await interaction.user.send(embed=embed)
+
+            order_channel_id = data[gid].get("order_channel")
+            if order_channel_id:
+                channel = bot.get_channel(order_channel_id)
+                if channel:
+                    await channel.send(f"📥 طلب جديد من {interaction.user.mention}:\n{الطلب}")
+
+            await interaction.response.send_message("✅ تم تنفيذ الطلب وتم إرسال الفاتورة في الخاص.", ephemeral=True)
+
+    class منتجView(ui.View):
+        def __init__(self, القسم):
+            super().__init__(timeout=60)
+            for منتج in data[gid]["categories"][القسم]:
+                self.add_item(ui.Button(label=منتج, style=ButtonStyle.secondary, custom_id=f"product_{القسم}_{منتج}"))
+
+        async def interaction_check(self, i: Interaction):
+            return i.user.id == interaction.user.id
+
+    class قسمView(ui.View):
         def __init__(self):
-            super().__init__(timeout=None)
+            super().__init__(timeout=60)
             for قسم in data[gid]["categories"]:
-                self.add_item(ui.Button(label=قسم, custom_id=f"category_{قسم}"))
+                self.add_item(ui.Button(label=قسم, style=ButtonStyle.primary, custom_id=f"section_{قسم}"))
 
-    await interaction.response.send_message("اختر القسم:", view=CategoryView(), ephemeral=True)
+        async def interaction_check(self, i: Interaction):
+            return i.user.id == interaction.user.id
 
-    async def category_callback(i: Interaction):
-        القسم = i.data["custom_id"].split("_", 1)[1]
-        class ProductView(ui.View):
-            def __init__(self):
-                super().__init__(timeout=None)
-                for منتج in data[gid]["categories"][القسم]:
-                    self.add_item(ui.Button(label=منتج, custom_id=f"product_{القسم}_{منتج}"))
-        await i.response.send_message("اختر المنتج:", view=ProductView(), ephemeral=True)
+    view = قسمView()
+    msg = await interaction.response.send_message("📁 اختر القسم:", view=view, ephemeral=True)
 
-    async def product_callback(i: Interaction):
-        _, القسم, المنتج = i.data["custom_id"].split("_", 2)
-        await i.response.send_modal(QuantityModal(القسم, المنتج, i))
+    async def wait_for_interaction():
+        try:
+            interaction2 = await bot.wait_for("interaction", check=lambda i: i.user == interaction.user and i.data["custom_id"].startswith("section_"), timeout=60)
+            القسم = interaction2.data["custom_id"][8:]
+            await interaction2.response.edit_message(content=f"🗂️ اختر المنتج من قسم: {القسم}", view=منتجView(القسم))
 
-    bot.add_view(ui.View())  # لتفعيل الأزرار
+            interaction3 = await bot.wait_for("interaction", check=lambda i: i.user == interaction.user and i.data["custom_id"].startswith("product_"), timeout=60)
+            _, القسم, المنتج = interaction3.data["custom_id"].split("_", 2)
+            await interaction3.response.send_modal(ProductQuantityModal(القسم, المنتج))
+
+        except Exception:
+            pass
+
+    await wait_for_interaction()
 
 # Flask للتشغيل في Render
 app = Flask('')
