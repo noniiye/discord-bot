@@ -97,6 +97,64 @@ async def اضافة_منتج(interaction: Interaction, القسم: str, الا�
     save_data(data)
     await interaction.response.send_message(f"✅ تمت إضافة المنتج: {الاسم} في القسم: {القسم}", ephemeral=True)
 
+@bot.tree.command(name="عرض_المنتجات")
+async def عرض_المنتجات(interaction: Interaction):
+    data = load_data()
+    gid = str(interaction.guild_id)
+    if gid not in data or not data[gid]["categories"]:
+        await interaction.response.send_message("❌ لا توجد منتجات للعرض.", ephemeral=True)
+        return
+
+    class ProductView(ui.View):
+        def __init__(self):
+            super().__init__(timeout=None)
+            for القسم, المنتجات in data[gid]["categories"].items():
+                for اسم_المنتج, تفاصيل in المنتجات.items():
+                    self.add_item(ui.Button(label=f"{اسم_المنتج} - {تفاصيل['price']} ريال", custom_id=f"طلب:{القسم}:{اسم_المنتج}"))
+
+        @ui.button(label="إلغاء", style=ButtonStyle.danger, custom_id="إلغاء")
+        async def cancel(self, interaction: Interaction, button: ui.Button):
+            await interaction.message.delete()
+
+    await interaction.response.send_message("📦 اختر منتج للطلب:", view=ProductView(), ephemeral=True)
+
+class QuantityModal(ui.Modal, title="تحديد الكمية"):
+    def __init__(self, القسم, المنتج):
+        super().__init__()
+        self.القسم = القسم
+        self.المنتج = المنتج
+        self.input = ui.TextInput(label="اكتب الكمية المطلوبة:", style=discord.TextStyle.short)
+        self.add_item(self.input)
+
+    async def on_submit(self, interaction: Interaction):
+        data = load_data()
+        gid = str(interaction.guild_id)
+        تفاصيل = data[gid]["categories"][self.القسم][self.المنتج]
+        الكمية = int(self.input.value)
+        السعر_الإجمالي = الكمية * تفاصيل["price"]
+        المستخدم = interaction.user
+
+        # إرسال الطلب لروم التاجر
+        order_channel = interaction.guild.get_channel(data[gid]["order_channel"])
+        if order_channel:
+            await order_channel.send(f"🛒 طلب جديد من {مستخدم.mention}\n📦 المنتج: {self.المنتج}\n📁 القسم: {self.القسم}\n🔢 الكمية: {الكمية}\n💰 السعر الإجمالي: {السعر_الإجمالي} ريال")
+
+        # إرسال الفاتورة للعميل
+        try:
+            await المستخدم.send(embed=Embed(title="🧾 فاتورة الطلب", description=f"**المتجر:** {data[gid]['store_name']}\n**المنتج:** {self.المنتج}\n**الكمية:** {الكمية}\n**الإجمالي:** {السعر_الإجمالي} ريال\n**رابط الدفع:** {data[gid]['payment']}", color=0x00ff00))
+        except:
+            pass
+
+        await interaction.response.send_message("✅ تم تنفيذ الطلب! تحقق من الخاص للفاتورة.", ephemeral=True)
+
+@bot.event
+async def on_interaction(interaction):
+    if interaction.type == discord.InteractionType.component:
+        if interaction.data["custom_id"].startswith("طلب:"):
+            _, القسم, المنتج = interaction.data["custom_id"].split(":")
+            await interaction.response.send_modal(QuantityModal(القسم, المنتج))
+
+# حذف المتجر
 @bot.tree.command(name="حذف_المتجر")
 async def حذف_المتجر(interaction: Interaction):
     data = load_data()
