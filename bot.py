@@ -11,7 +11,6 @@ intents.guilds = True
 intents.members = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-bot.tree = app_commands.CommandTree(bot)
 
 servers_data = {}
 
