@@ -80,18 +80,6 @@ async def اضافة_قسم(interaction: Interaction, الاسم: str):
     save_data(data)
     await interaction.response.send_message(f"✅ تم إضافة القسم: {الاسم}", ephemeral=True)
 
-@bot.tree.command(name="حذف_قسم")
-@app_commands.describe(الاسم="اسم القسم المراد حذفه")
-async def حذف_قسم(interaction: Interaction, الاسم: str):
-    data = load_data()
-    gid = str(interaction.guild_id)
-    if gid in data and الاسم in data[gid]["categories"]:
-        del data[gid]["categories"][الاسم]
-        save_data(data)
-        await interaction.response.send_message(f"✅ تم حذف القسم: {الاسم}", ephemeral=True)
-    else:
-        await interaction.response.send_message("❌ القسم غير موجود.", ephemeral=True)
-
 @bot.tree.command(name="اضافة_منتج")
 @app_commands.describe(القسم="القسم التابع له المنتج", الاسم="اسم المنتج", الكمية="عدد القطع", السعر="سعر المنتج")
 async def اضافة_منتج(interaction: Interaction, القسم: str, الاسم: str, الكمية: int, السعر: int):
@@ -115,6 +103,18 @@ async def حذف_منتج(interaction: Interaction, القسم: str, الاسم:
         await interaction.response.send_message(f"✅ تم حذف المنتج: {الاسم} من قسم {القسم}", ephemeral=True)
     else:
         await interaction.response.send_message("❌ المنتج غير موجود.", ephemeral=True)
+
+@bot.tree.command(name="حذف_قسم")
+@app_commands.describe(الاسم="اسم القسم المراد حذفه")
+async def حذف_قسم(interaction: Interaction, الاسم: str):
+    data = load_data()
+    gid = str(interaction.guild_id)
+    if gid in data and الاسم in data[gid]["categories"]:
+        del data[gid]["categories"][الاسم]
+        save_data(data)
+        await interaction.response.send_message(f"✅ تم حذف القسم: {الاسم}", ephemeral=True)
+    else:
+        await interaction.response.send_message("❌ القسم غير موجود.", ephemeral=True)
 
 @bot.tree.command(name="رابط_الدفع")
 @app_commands.describe(الرابط="أدخل رابط الدفع")
@@ -140,10 +140,8 @@ class QuantityModal(ui.Modal, title="🔢 أدخل الكمية"):
     async def on_submit(self, interaction: Interaction):
         try:
             الكمية = int(self.كمية.value)
-            if الكمية <= 0:
-                raise ValueError
         except ValueError:
-            await interaction.response.send_message("❌ الرجاء إدخال رقم صحيح موجب للكمية.", ephemeral=True)
+            await interaction.response.send_message("❌ أدخل رقمًا صحيحًا.", ephemeral=True)
             return
 
         data = load_data()
@@ -158,29 +156,22 @@ class QuantityModal(ui.Modal, title="🔢 أدخل الكمية"):
         embed.add_field(name="🔢 الكمية", value=str(الكمية), inline=True)
         embed.add_field(name="💰 السعر الإجمالي", value=f"{السعر_الإجمالي} ريال", inline=True)
         embed.add_field(name="💳 الدفع", value=info["payment_link"] or "لا يوجد رابط دفع", inline=False)
-        embed.add_field(name="📩 سيتم إرسال الإيصال للتاجر", value="نعم", inline=False)
-
-        view = ui.View()
 
         class تقييم(ui.View):
-            def __init__(self, الطلب_embed):
-                super().__init__()
-                self.embed = الطلب_embed
-
-            @ui.button(label="⭐", style=ButtonStyle.success)
+            @ui.button(label="⭐ تقييم الطلب", style=ButtonStyle.success)
             async def rate(self, interaction: Interaction, button: ui.Button):
                 await interaction.response.send_message("✅ شكرًا لتقييمك!", ephemeral=True)
-                order_channel = bot.get_channel(data[gid]["order_channel"])
+                order_channel = bot.get_channel(info["order_channel"])
                 if order_channel:
-                    await order_channel.send(f"📥 تقييم جديد:", embed=self.embed)
+                    await order_channel.send(f"📥 تقييم جديد من {interaction.user.mention}:", embed=embed)
 
-        await interaction.user.send(embed=embed, view=تقييم(embed))
+        await interaction.user.send(embed=embed, view=تقييم())
 
-        order_channel = bot.get_channel(data[gid]["order_channel"])
+        order_channel = bot.get_channel(info["order_channel"])
         if order_channel:
             await order_channel.send(f"🛒 طلب جديد من {interaction.user.mention}\n📦 المنتج: {self.المنتج}\n📁 القسم: {self.القسم}\n🔢 الكمية: {الكمية}\n💰 السعر الإجمالي: {السعر_الإجمالي} ريال")
 
-        await interaction.response.send_message("✅ تم إرسال الفاتورة في الخاص", ephemeral=True)
+        await interaction.response.send_message("✅ تم إرسال الفاتورة في الخاص.", ephemeral=True)
 
 @bot.tree.command(name="طلب")
 async def طلب(interaction: Interaction):
@@ -197,7 +188,7 @@ async def طلب(interaction: Interaction):
 
     class اختيارالقسم(ui.View):
         def __init__(self):
-            super().__init__()
+            super().__init__(timeout=None)
             for القسم in الأقسام:
                 self.add_item(self.قسمButton(القسم))
 
@@ -206,41 +197,33 @@ async def طلب(interaction: Interaction):
                 super().__init__(label=القسم, style=ButtonStyle.secondary)
                 self.القسم = القسم
 
-            async def callback(self, interaction: Interaction):
-                المنتجات = list(data[gid]["categories"][self.القسم].keys())
+            async def callback(inner_self, interaction: Interaction):
+                المنتجات = list(data[gid]["categories"][inner_self.القسم].keys())
                 if not المنتجات:
                     await interaction.response.send_message("❌ لا توجد منتجات في هذا القسم.", ephemeral=True)
                     return
 
                 class اختيارمنتج(ui.View):
                     def __init__(self):
-                        super().__init__()
+                        super().__init__(timeout=None)
                         for منتج in المنتجات:
                             self.add_item(self.منتجButton(منتج))
-                        self.add_item(رجوعButton())
-                        self.add_item(إلغاءButton())
+                        self.add_item(self.رجوعButton())
 
                     class منتجButton(ui.Button):
                         def __init__(self, المنتج):
                             super().__init__(label=المنتج, style=ButtonStyle.primary)
                             self.المنتج = المنتج
 
-                        async def callback(inner_self, interaction: Interaction):
-                            await interaction.response.send_modal(QuantityModal(self.القسم, inner_self.المنتج, interaction))
+                        async def callback(button_self, interaction: Interaction):
+                            await interaction.response.send_modal(QuantityModal(inner_self.القسم, button_self.المنتج, interaction))
 
                     class رجوعButton(ui.Button):
                         def __init__(self):
-                            super().__init__(label="🔙 رجوع", style=ButtonStyle.secondary)
+                            super().__init__(label="🔙 رجوع", style=ButtonStyle.danger)
 
                         async def callback(self, interaction: Interaction):
                             await طلب(interaction)
-
-                    class إلغاءButton(ui.Button):
-                        def __init__(self):
-                            super().__init__(label="❌ إلغاء الطلب", style=ButtonStyle.danger)
-
-                        async def callback(self, interaction: Interaction):
-                            await interaction.response.send_message("❌ تم إلغاء الطلب.", ephemeral=True)
 
                 await interaction.response.send_message("اختر المنتج:", view=اختيارمنتج(), ephemeral=True)
 
