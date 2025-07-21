@@ -97,7 +97,7 @@ class تاكيدطلب(ui.View):
 
     @ui.button(label="✅ تأكيد الطلب", style=discord.ButtonStyle.green)
     async def تأكيد(self, interaction: Interaction, button: ui.Button):
-        guild_id = str(interaction.guild.id)
+        guild_id = str(self.interaction.guild.id)
         المستخدم = interaction.user
         السعر_الاجمالي = self.الكمية * self.السعر_الوحدة
 
@@ -110,7 +110,7 @@ class تاكيدطلب(ui.View):
         embed.set_footer(text="يرجى إرسال الإيصال للتاجر بعد الدفع")
 
         زر_الغاء = ui.View()
-        زر_الغاء.add_item(ui.Button(label="❌ إلغاء الطلب", style=discord.ButtonStyle.danger, custom_id="cancel_order"))
+        زر_الغاء.add_item(ui.Button(label="❌ إلغاء الطلب", style=discord.ButtonStyle.danger, custom_id=f"cancel_order_{guild_id}"))
 
         await المستخدم.send(embed=embed, view=زر_الغاء)
 
@@ -122,26 +122,29 @@ class تاكيدطلب(ui.View):
 
         تقييم = ui.View()
         for i in range(1, 6):
-            تقييم.add_item(ui.Button(label="⭐" * i, style=discord.ButtonStyle.secondary, custom_id=f"rate_{i}"))
+            تقييم.add_item(ui.Button(label="⭐" * i, style=discord.ButtonStyle.secondary, custom_id=f"rate_{i}_{guild_id}"))
         await المستخدم.send("📊 يرجى تقييم الطلب:", view=تقييم)
         await interaction.response.send_message("✅ تم تنفيذ الطلب! تم إرسال الفاتورة والتقييم في الخاص.", ephemeral=True)
 
 @bot.event
 async def on_interaction(interaction: discord.Interaction):
     if interaction.type == discord.InteractionType.component:
-        if interaction.data.get("custom_id", "").startswith("rate_"):
-            rating = interaction.data["custom_id"].split("_")[-1]
-            await interaction.response.send_message("✅ شكرًا لتقييمك!", ephemeral=True)
-            guild_id = str(interaction.guild.id)
-            ch_id = data[guild_id].get("trader_channel_id")
-            if ch_id:
-                channel = bot.get_channel(ch_id)
-                if channel:
-                    await channel.send(f"⭐ تم تقييم الطلب من <@{interaction.user.id}> بعدد نجوم: {rating}")
-        elif interaction.data.get("custom_id") == "cancel_order":
+        custom_id = interaction.data.get("custom_id", "")
+        if custom_id.startswith("rate_"):
+            parts = custom_id.split("_")
+            if len(parts) == 3:
+                rating = parts[1]
+                guild_id = parts[2]
+                await interaction.response.send_message("✅ شكرًا لتقييمك!", ephemeral=True)
+                ch_id = data.get(guild_id, {}).get("trader_channel_id")
+                if ch_id:
+                    channel = bot.get_channel(ch_id)
+                    if channel:
+                        await channel.send(f"⭐ تم تقييم الطلب من <@{interaction.user.id}> بعدد نجوم: {rating}")
+        elif custom_id.startswith("cancel_order_"):
+            guild_id = custom_id.split("_")[-1]
             await interaction.response.send_message("❌ تم إلغاء الطلب بنجاح.", ephemeral=True)
-            guild_id = str(interaction.guild.id)
-            ch_id = data[guild_id].get("trader_channel_id")
+            ch_id = data.get(guild_id, {}).get("trader_channel_id")
             if ch_id:
                 channel = bot.get_channel(ch_id)
                 if channel:
