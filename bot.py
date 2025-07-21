@@ -161,19 +161,18 @@ class QuantityModal(ui.Modal, title="🔢 أدخل الكمية"):
         class تأكيد_الطلب(ui.View):
             def __init__(self):
                 super().__init__()
-                self.value = None
 
             @ui.button(label="✅ تأكيد الطلب", style=ButtonStyle.success)
-            async def confirm(self, interaction: Interaction, button: ui.Button):
-                await interaction.response.send_message("✅ تم تأكيد الطلب! ستصلك الفاتورة في الخاص.", ephemeral=True)
-                await interaction.user.send(embed=embed)
+            async def confirm(self, button_interaction: Interaction, button: ui.Button):
+                await button_interaction.response.send_message("✅ تم تأكيد الطلب! ستصلك الفاتورة في الخاص.", ephemeral=True)
+                await button_interaction.user.send(embed=embed)
                 order_channel = bot.get_channel(info["order_channel"])
                 if order_channel:
-                    await order_channel.send(f"🛒 طلب جديد من {interaction.user.mention}\n📦 المنتج: {self.المنتج}\n📁 القسم: {self.القسم}\n🔢 الكمية: {الكمية}\n💰 السعر الإجمالي: {السعر_الإجمالي} ريال")
+                    await order_channel.send(f"🛒 طلب جديد من {button_interaction.user.mention}\n📦 المنتج: {self.المنتج}\n📁 القسم: {self.القسم}\n🔢 الكمية: {الكمية}\n💰 السعر الإجمالي: {السعر_الإجمالي} ريال")
 
             @ui.button(label="❌ إلغاء الطلب", style=ButtonStyle.danger)
-            async def cancel(self, interaction: Interaction, button: ui.Button):
-                await interaction.response.send_message("❌ تم إلغاء الطلب.", ephemeral=True)
+            async def cancel(self, button_interaction: Interaction, button: ui.Button):
+                await button_interaction.response.send_message("❌ تم إلغاء الطلب.", ephemeral=True)
 
         await interaction.response.send_message("📋 تأكيد الطلب:", view=تأكيد_الطلب(), ephemeral=True)
 
