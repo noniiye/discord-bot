@@ -140,6 +140,12 @@ async def on_interaction(interaction: discord.Interaction):
                     await channel.send(f"⭐ تم تقييم الطلب من <@{interaction.user.id}> بعدد نجوم: {rating}")
         elif interaction.data.get("custom_id") == "cancel_order":
             await interaction.response.send_message("❌ تم إلغاء الطلب بنجاح.", ephemeral=True)
+            guild_id = str(interaction.guild.id)
+            ch_id = data[guild_id].get("trader_channel_id")
+            if ch_id:
+                channel = bot.get_channel(ch_id)
+                if channel:
+                    await channel.send(f"❌ تم إلغاء الطلب من <@{interaction.user.id}>")
             return
     await bot.process_application_commands(interaction)
 
