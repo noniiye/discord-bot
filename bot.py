@@ -9,7 +9,6 @@ intents = discord.Intents.default()
 intents.message_content = True
 
 bot = commands.Bot(command_prefix="!", intents=intents)
-tree = app_commands.CommandTree(bot)
 
 # تحميل البيانات من ملف JSON
 try:
@@ -25,12 +24,12 @@ def حفظ_البيانات():
 
 @bot.event
 async def on_ready():
-    await tree.sync()
+    await bot.tree.sync()
     print(f"✅ Logged in as {bot.user}")
 
 # أوامر التاجر ======================
 
-@tree.command(name="انشاء_متجر", description="إنشاء متجر باسم معين")
+@bot.tree.command(name="انشاء_متجر", description="إنشاء متجر باسم معين")
 @app_commands.describe(الاسم="اسم المتجر")
 async def انشاء_متجر(interaction: discord.Interaction, الاسم: str):
     guild_id = str(interaction.guild.id)
@@ -38,7 +37,7 @@ async def انشاء_متجر(interaction: discord.Interaction, الاسم: str)
     حفظ_البيانات()
     await interaction.response.send_message(f"✅ تم إنشاء المتجر باسم: **{الاسم}**", ephemeral=True)
 
-@tree.command(name="رابط_دفع", description="تحديد رابط الدفع ليظهر في الفاتورة")
+@bot.tree.command(name="رابط_دفع", description="تحديد رابط الدفع ليظهر في الفاتورة")
 @app_commands.describe(الرابط="رابط الدفع")
 async def رابط_دفع(interaction: discord.Interaction, الرابط: str):
     guild_id = str(interaction.guild.id)
@@ -49,7 +48,7 @@ async def رابط_دفع(interaction: discord.Interaction, الرابط: str):
     حفظ_البيانات()
     await interaction.response.send_message("✅ تم حفظ رابط الدفع بنجاح.", ephemeral=True)
 
-@tree.command(name="روم_التاجر", description="تحديد روم استقبال الطلبات")
+@bot.tree.command(name="روم_التاجر", description="تحديد روم استقبال الطلبات")
 @app_commands.describe(الروم="روم الطلبات")
 async def روم_التاجر(interaction: discord.Interaction, الروم: discord.TextChannel):
     guild_id = str(interaction.guild.id)
@@ -60,7 +59,7 @@ async def روم_التاجر(interaction: discord.Interaction, الروم: disc
     حفظ_البيانات()
     await interaction.response.send_message(f"✅ تم تعيين روم التاجر إلى: {الروم.mention}", ephemeral=True)
 
-@tree.command(name="روم_الطلبات", description="تحديد الروم الذي يُسمح فيه بتنفيذ أمر /طلب")
+@bot.tree.command(name="روم_الطلبات", description="تحديد الروم الذي يُسمح فيه بتنفيذ أمر /طلب")
 @app_commands.describe(الروم="روم الطلبات")
 async def روم_الطلبات(interaction: discord.Interaction, الروم: discord.TextChannel):
     guild_id = str(interaction.guild.id)
@@ -72,7 +71,7 @@ async def روم_الطلبات(interaction: discord.Interaction, الروم: di
     await interaction.response.send_message(f"✅ تم تعيين روم الطلبات إلى: {الروم.mention}", ephemeral=True)
 
 # إضافة قسم
-@tree.command(name="اضافة_قسم", description="إضافة قسم جديد إلى المتجر")
+@bot.tree.command(name="اضافة_قسم", description="إضافة قسم جديد إلى المتجر")
 @app_commands.describe(القسم="اسم القسم")
 async def اضافة_قسم(interaction: discord.Interaction, القسم: str):
     guild_id = str(interaction.guild.id)
@@ -87,7 +86,7 @@ async def اضافة_قسم(interaction: discord.Interaction, القسم: str):
     await interaction.response.send_message(f"✅ تم إضافة القسم: {القسم}", ephemeral=True)
 
 # إضافة منتج إلى قسم
-@tree.command(name="اضافة_منتج", description="إضافة منتج إلى قسم معين")
+@bot.tree.command(name="اضافة_منتج", description="إضافة منتج إلى قسم معين")
 @app_commands.describe(القسم="اسم القسم", الاسم="اسم المنتج", الكمية="الكمية", السعر="سعر المنتج")
 async def اضافة_منتج(interaction: discord.Interaction, القسم: str, الاسم: str, الكمية: int, السعر: int):
     guild_id = str(interaction.guild.id)
@@ -99,7 +98,7 @@ async def اضافة_منتج(interaction: discord.Interaction, القسم: str,
     await interaction.response.send_message(f"✅ تم إضافة المنتج: {الاسم} إلى القسم: {القسم}", ephemeral=True)
 
 # عرض الأقسام
-@tree.command(name="الاقسام", description="عرض أقسام المتجر")
+@bot.tree.command(name="الاقسام", description="عرض أقسام المتجر")
 async def الاقسام(interaction: discord.Interaction):
     guild_id = str(interaction.guild.id)
     if guild_id not in data or not data[guild_id]["categories"]:
@@ -110,7 +109,7 @@ async def الاقسام(interaction: discord.Interaction):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # عرض منتجات قسم
-@tree.command(name="عرض", description="عرض منتجات قسم معين")
+@bot.tree.command(name="عرض", description="عرض منتجات قسم معين")
 @app_commands.describe(القسم="اسم القسم")
 async def عرض(interaction: discord.Interaction, القسم: str):
     guild_id = str(interaction.guild.id)
@@ -126,7 +125,7 @@ async def عرض(interaction: discord.Interaction, القسم: str):
     await interaction.response.send_message(embed=embed, ephemeral=True)
 
 # طلب (لزبون)
-@tree.command(name="طلب", description="تنفيذ طلب")
+@bot.tree.command(name="طلب", description="تنفيذ طلب")
 @app_commands.describe(القسم="القسم", المنتج="المنتج", الكمية="الكمية")
 async def طلب(interaction: discord.Interaction, القسم: str, المنتج: str, الكمية: int):
     guild_id = str(interaction.guild.id)
@@ -158,6 +157,19 @@ async def طلب(interaction: discord.Interaction, القسم: str, المنتج
 
     try:
         await user.send(embed=embed)
+
+        class تقييمView(discord.ui.View):
+            @discord.ui.button(label="⭐ ⭐ ⭐ ⭐ ⭐", style=discord.ButtonStyle.primary)
+            async def تقييم(self, interaction_button: discord.Interaction, button: discord.ui.Button):
+                await interaction_button.response.send_message("✅ شكراً لتقييمك!", ephemeral=True)
+                trader_channel_id = data[guild_id].get("trader_channel_id")
+                if trader_channel_id:
+                    trader_channel = bot.get_channel(trader_channel_id)
+                    if trader_channel:
+                        await trader_channel.send(f"📢 تقييم جديد من {user.mention} على طلبه: ⭐⭐⭐⭐⭐")
+
+        await user.send("🎉 هل ترغب في تقييم تجربتك؟", view=تقييمView())
+
     except:
         await interaction.response.send_message("❌ لم أستطع إرسال الفاتورة في الخاص.", ephemeral=True)
         return
