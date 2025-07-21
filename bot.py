@@ -128,6 +128,7 @@ async def رابط_الدفع(interaction: Interaction, الرابط: str):
     save_data(data)
     await interaction.response.send_message("✅ تم حفظ رابط الدفع", ephemeral=True)
 
+# تعديل المودال لإضافة أزرار تأكيد وإلغاء
 class QuantityModal(ui.Modal, title="🔢 أدخل الكمية"):
     الكمية = ui.TextInput(label="الكمية", placeholder="مثلاً: 2", required=True)
 
@@ -157,21 +158,24 @@ class QuantityModal(ui.Modal, title="🔢 أدخل الكمية"):
         embed.add_field(name="💰 السعر الإجمالي", value=f"{السعر_الإجمالي} ريال", inline=True)
         embed.add_field(name="💳 الدفع", value=info["payment_link"] or "لا يوجد رابط دفع", inline=False)
 
-        class تقييم(ui.View):
-            @ui.button(label="⭐ تقييم الطلب", style=ButtonStyle.success)
-            async def rate(self, interaction: Interaction, button: ui.Button):
-                await interaction.response.send_message("✅ شكرًا لتقييمك!", ephemeral=True)
+        class تأكيد_الطلب(ui.View):
+            def __init__(self):
+                super().__init__()
+                self.value = None
+
+            @ui.button(label="✅ تأكيد الطلب", style=ButtonStyle.success)
+            async def confirm(self, interaction: Interaction, button: ui.Button):
+                await interaction.response.send_message("✅ تم تأكيد الطلب! ستصلك الفاتورة في الخاص.", ephemeral=True)
+                await interaction.user.send(embed=embed)
                 order_channel = bot.get_channel(info["order_channel"])
                 if order_channel:
-                    await order_channel.send(f"📥 تقييم جديد من {interaction.user.mention}:", embed=embed)
+                    await order_channel.send(f"🛒 طلب جديد من {interaction.user.mention}\n📦 المنتج: {self.المنتج}\n📁 القسم: {self.القسم}\n🔢 الكمية: {الكمية}\n💰 السعر الإجمالي: {السعر_الإجمالي} ريال")
 
-        await interaction.user.send(embed=embed, view=تقييم())
+            @ui.button(label="❌ إلغاء الطلب", style=ButtonStyle.danger)
+            async def cancel(self, interaction: Interaction, button: ui.Button):
+                await interaction.response.send_message("❌ تم إلغاء الطلب.", ephemeral=True)
 
-        order_channel = bot.get_channel(info["order_channel"])
-        if order_channel:
-            await order_channel.send(f"🛒 طلب جديد من {interaction.user.mention}\n📦 المنتج: {self.المنتج}\n📁 القسم: {self.القسم}\n🔢 الكمية: {الكمية}\n💰 السعر الإجمالي: {السعر_الإجمالي} ريال")
-
-        await interaction.response.send_message("✅ تم إرسال الفاتورة في الخاص.", ephemeral=True)
+        await interaction.response.send_message("📋 تأكيد الطلب:", view=تأكيد_الطلب(), ephemeral=True)
 
 @bot.tree.command(name="طلب")
 async def طلب(interaction: Interaction):
